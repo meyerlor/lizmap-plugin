@@ -925,6 +925,28 @@ class Checks:
                 help=move_file,
             )
         )
+        self.ChildPopupNotEnabled = Check(
+            'child_popup_not_enabled',
+            tr('Child layer popup not enabled'),
+            tr(
+                'This layer has "Display related children with popups" enabled on the parent layer, '
+                'but the popup option is not enabled on this child layer. '
+                'Child features will not appear in the parent popup.'
+            ),
+            (
+                '<ul>'
+                '<li>{fix}</li>'
+                '</ul>'
+            ).format(
+                fix=tr(
+                    'In the Lizmap plugin, select this child layer and enable the "Popup" '
+                    'checkbox in its "Popup" tab.'
+                ),
+            ),
+            Levels.Layer,
+            Severities().important,
+            QIcon(':/images/themes/default/mActionIdentify.svg'),
+        )
         self.PreventParentFolder = Check(
             Settings.AllowParentFolder,
             tr('Parent folder'),

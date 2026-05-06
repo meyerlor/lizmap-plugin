@@ -15,12 +15,15 @@ from typing import (
 from qgis.core import (
     Qgis,
     QgsApplication,
+    QgsAttributeEditorContainer,
+    QgsAttributeEditorRelation,
     QgsEditFormConfig,
     QgsExpression,
     QgsMapLayerProxyModel,
     QgsMasterLayoutInterface,
     QgsProject,
     QgsRectangle,
+    QgsRelationManager,
     QgsSettings,
     QgsVectorLayer,
 )
@@ -149,6 +152,28 @@ LOGGER = logging.getLogger(plugin_name())
 VERSION_URL = "https://raw.githubusercontent.com/3liz/lizmap-web-client/versions/versions.json"
 # To try a local file
 # VERSION_URL = 'file:///home/etienne/.local/share/QGIS/QGIS3/profiles/default/Lizmap/released_versions.json'
+
+
+def _form_has_relation_widget(
+        node: "QgsAttributeEditorContainer",
+        relation_manager: QgsRelationManager,
+) -> bool:
+    """Recursively check whether a DnD form container has any valid relation widget nodes.
+
+    A relation widget placed inside a Tab or GroupBox generates a
+    ``popup_lizmap_dd_relation`` placeholder div in the maptip HTML.
+    LWC uses those divs to inject child-feature popups into the correct
+    Tab / GroupBox position when ``popupDisplayChildren`` is enabled.
+    """
+    if isinstance(node, QgsAttributeEditorRelation):
+        node.init(relation_manager)
+        return node.relation().isValid()
+    if isinstance(node, QgsAttributeEditorContainer):
+        return any(
+            _form_has_relation_widget(child, relation_manager)
+            for child in node.children()
+        )
+    return False
 
 
 class Lizmap(
@@ -1322,6 +1347,10 @@ class Lizmap(
 
         root = config.invisibleRootContainer()
         relation_manager = self.project.relationManager()
+
+        # Detect relation widgets before generating so we can auto-configure children display.
+        form_has_relations = _form_has_relation_widget(root, relation_manager)
+
         html_content = Tooltip.create_popup_node_item_from_form(
             layer,
             root,
@@ -1342,7 +1371,29 @@ class Lizmap(
             # LWC 3.8.0 to 3.8.6
             html_content += Tooltip.css_3_8_6()
 
-        self._set_maptip(layer, html_content)
+        flag = self._set_maptip(layer, html_content)
+        if not flag:
+            return
+
+        # When the DnD form contains relation widget(s), the generated maptip includes
+        # popup_lizmap_dd_relation placeholder divs inside the correct Tab or GroupBox.
+        # LWC fills those placeholders only when popupDisplayChildren is enabled.
+        # Auto-enable it so users do not have to discover this connection themselves.
+        if form_has_relations:
+            popup_children_widget = self.layer_options_list["popupDisplayChildren"]["widget"]
+            if not popup_children_widget.isChecked():
+                popup_children_widget.setChecked(True)
+                self.dlg.display_message_bar(
+                    tr("Children display enabled"),
+                    tr(
+                        "The \"{option}\" option has been automatically enabled because "
+                        "the drag & drop form contains relation widget(s). "
+                        "Child features will be displayed inside the Tab or GroupBox "
+                        "where the relation widget is placed."
+                    ).format(option=tr("Display related children with popups")),
+                    level=Qgis.MessageLevel.Info,
+                    duration=10,
+                )
 
     def write_project_config_file(self, lwc_version: LwcVersions, with_gui: bool = True) -> bool:
         """Write a Lizmap configuration to the file."""

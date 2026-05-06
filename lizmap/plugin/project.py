@@ -1298,6 +1298,34 @@ class ProjectManager(LizmapProtocol):
                 if compareVersions(current_version, min_required_version) == 2:
                     self.dlg.check_results.add_error(Error(tr("Global"), checks.PluginDesktopVersion))
 
+        # Check: parent layers with popupDisplayChildren require child layers to have popup enabled.
+        # LWC's addChildrenPopup() skips child layers whose popup flag is not 'True', so children
+        # stay invisible even when the placeholder div exists in the parent's maptip HTML.
+        relation_manager = self.project.relationManager()
+        for layer_id, layer_cfg in self.layerList.items():
+            if not ambiguous_to_bool(layer_cfg.get("popup", False)):
+                continue
+            if not ambiguous_to_bool(layer_cfg.get("popupDisplayChildren", False)):
+                continue
+            parent_layer = self.project.mapLayer(layer_id)
+            if not parent_layer or parent_layer.type() != QgsMapLayer.LayerType.VectorLayer:
+                continue
+            for relation in relation_manager.referencedRelations(parent_layer):
+                child_layer = relation.referencingLayer()
+                if not child_layer:
+                    continue
+                child_cfg = self.layerList.get(child_layer.id())
+                if child_cfg is None:
+                    continue
+                if not ambiguous_to_bool(child_cfg.get("popup", False)):
+                    self.dlg.check_results.add_error(
+                        Error(
+                            child_layer.name(),
+                            checks.ChildPopupNotEnabled,
+                            source_type=SourceLayer(child_layer.name(), child_layer.id()),
+                        )
+                    )
+
         # Not blocking, we change it in the background
         if self.project.readNumEntry("WMSMaxAtlasFeatures", "")[0] <= 0:
             logger.info(
